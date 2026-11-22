@@ -9,11 +9,13 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/worker.js && node --check public/app.js && node --check public/phonology.js",
-    "build:dict": "node scripts/build-dict.mjs"
+    "check": "node --check src/worker.js && node --check public/app.js && node --check public/phonology.js && node --check public/dictionary.js",
+    "build:dict": "node scripts/build-dict.mjs",
+    "build:ecdict": "node scripts/build-ecdict.mjs"
   },
   "devDependencies": {
     "cmu-pronouncing-dictionary": "^3.0.0",
+    "opencc-js": "^1.4.2",
     "wrangler": "^4.166.0"
   }
 }

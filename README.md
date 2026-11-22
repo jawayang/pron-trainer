@@ -19,7 +19,9 @@
 | 問題 | 誰來回答 |
 |---|---|
 | **哪些字我該練？** | CMUdict（13 萬字的音素與重音資料） |
-| **這個字怎麼唸？** | Azure TTS + 真人錄音 |
+| **這個字怎麼唸？** | Azure TTS（SSML `<phoneme>` 指定音素）+ 真人錄音 |
+| **這個字什麼意思？** | ECDICT 子集（中英雙解、考試標籤、詞頻、原形還原） |
+| **這句在說什麼？** | Azure Translator |
 
 第一個問題才是關鍵 —— 你不會知道自己哪裡不熟，所以要讓程式從音素結構推出來。
 `months` 的 `/ˈmʌnθs/` 同時有 θ 和字尾三連子音，這是規則能判斷的，不需要你先知道。
@@ -70,6 +72,32 @@ CMUdict 給音素和重音，但**不給音節邊界**。只用 maximal onset pr
 `bs` 和 `nn` 都不是英語合法的字首組合。另外還要一條修正：
 **重音的鬆母音必須閉合自己的音節**，所以 `happy` 是 `/ˈhæp.i/` 而不是 `/ˈhæ.pi/`。
 
+
+### 詞典：77 萬筆裁到 5.9 萬筆
+
+ECDICT 完整版 77 萬筆、66 MB，不可能整份進瀏覽器。但絕大多數是專有名詞和生僻變體，
+讀一般文章永遠不會遇到。篩選條件用 ECDICT 自己的標註 —— 有語料庫詞頻排名、
+有考試大綱標籤、或屬於牛津三千核心詞彙 —— 留下 **59,137 筆、8.7 MB（gzip 後約 3.6 MB）**。
+
+**延遲載入。** 標色只需要 CMUdict，詞義是點開面板才用得到，所以詞典等第一次點字才抓。
+
+**原形還原靠 `exchange` 欄位，不另外帶 lemma 檔。** `month` 的 `s:months`、
+`run` 的 `p:ran/i:running` 反過來建索引就是 form → lemma，`months` 和 `ran` 因此查得到。
+兩個邊界情況值得一提：
+
+- `running` 在 ECDICT 裡**本來就是獨立詞條**（n. 賽跑），所以回它自己的釋義才對，
+  不該強制還原成 `run`
+- `best` 自己是動詞（勝過），但 `exchange` 的 `0:good` 標明形容詞用法的原形是 `good` ——
+  兩邊都顯示
+
+這兩條都是測試先假設錯、再被真實資料糾正的。
+
+**build 時就轉繁體。** ECDICT 的中文是简体，用 OpenCC 的 `twp` 轉成台灣用語
+（软件→軟體、计算机→計算機），不要丟到瀏覽器每次載入都轉一遍。
+
+**釋義一律用 `textContent` 進 DOM。** 音素可以用 `^[A-Z0-9 ]+$` 把格式鎖死，
+但釋義是任意中英文字，不能這樣限制 —— 所以改走「永遠不進 innerHTML」這條路。
+
 ### 用聲學驗收，不用耳朵
 
 要確認 Azure 真的照 `<phoneme>` 指定的音素唸（而不是忽略它、用自己猜的），
@@ -114,12 +142,15 @@ pron-trainer/
 │   ├── style.css       樣式
 │   ├── app.js          UI：斷詞、標色、詳細面板、發音、複習清單
 │   ├── phonology.js    純邏輯：ARPAbet→IPA、音節切分、難點規則（可直接測）
-│   └── cmudict.txt     自己託管的字典資料（3.45 MB，135,155 筆）
+│   ├── dictionary.js    英漢詞典查詢與原形還原（可直接測）
+│   ├── cmudict.txt     音素資料（3.45 MB，135,155 筆）
+│   └── ecdict.txt      英漢詞典資料（8.7 MB，59,137 筆，繁體）
 ├── scripts/
-│   └── build-dict.mjs  從 npm 套件產生上面那份資料檔
+│   ├── build-dict.mjs    產生 cmudict.txt
+│   └── build-ecdict.mjs  裁切並轉繁體，產生 ecdict.txt
 ├── src/
 │   └── worker.js       靜態檔 + POST /tts（Azure 代理）+ 安全標頭
-├── test/               23 條回歸測試，含整本字典的音素與格式驗證
+├── test/               35 條回歸測試，含整本字典的音素、格式與查詢驗證
 └── .github/workflows/  測試通過才部署，部署後跑煙霧測試
 ```
 
@@ -134,6 +165,9 @@ pron-trainer/
 ```bash
 npm install
 npm run build:dict                 # 產生 public/cmudict.txt
+# 詞典資料較大，原始檔不進 repo：
+git clone --depth 1 https://github.com/skywind3000/ECDICT.git vendor/ECDICT
+npm run build:ecdict               # 產生 public/ecdict.txt
 cp .dev.vars.example .dev.vars     # 填進 Azure 的 key
 npm run dev                        # http://localhost:8787
 npm test
@@ -149,6 +183,8 @@ npm test
 | `CLOUDFLARE_ACCOUNT_ID` | Workers 總覽頁右側 |
 | `AZURE_KEY` | Azure Speech 資源 → 金鑰與端點 → KEY 1 |
 | `TTS_TOKEN` | 自己產生，例如 `crypto.randomUUID()` |
+| `TRANSLATOR_KEY` | Azure Translator 資源的 key（選填，沒有就沒有整句翻譯） |
+| `TRANSLATOR_REGION` | 例如 `japaneast`（選填） |
 | `CLOUDFLARE_SUBDOMAIN` | 你的 workers.dev 子網域，例如 `jawa-yang`（煙霧測試要用） |
 
 推到 `main` 之後 CI 會跑測試 → 部署 → 用真的請求確認回來的是 MP3（檢查
@@ -242,6 +278,9 @@ Azure 的錯誤訊息和 `e.message` 都是外部字串，改用 `textContent` �
 | 來源 | 授權 | 使用方式 |
 |---|---|---|
 | [CMUdict](https://github.com/cmusphinx/cmudict) | BSD-2-Clause | 音素與重音，build 時轉成 `public/cmudict.txt` 自行託管 |
+| [ECDICT](https://github.com/skywind3000/ECDICT) | MIT | 英漢雙解詞典，build 時裁切、轉繁體成 `public/ecdict.txt` 自行託管 |
+| [OpenCC](https://github.com/BYVoid/OpenCC) | Apache-2.0 | build 時的简繁轉換（opencc-js） |
+| Azure Translator | 商業服務 | 整句翻譯（選用） |
 | [dictionaryapi.dev](https://dictionaryapi.dev/) / Wiktionary | CC BY-SA 3.0 | 音標與真人錄音，執行期取用 |
 | [Wikimedia Commons](https://commons.wikimedia.org/) / Lingua Libre | CC BY-SA（逐檔不同） | 真人錄音，執行期取用、不重新散布 |
 | Azure Speech | 商業服務 | 語音合成 |

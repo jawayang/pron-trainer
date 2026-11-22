@@ -50,6 +50,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/tts') return handleTTS(request, env, ctx, url);
+    if (url.pathname === '/translate') return handleTranslate(request, env, ctx, url);
 
     const res = await env.ASSETS.fetch(request);
     const out = new Response(res.body, res);
@@ -129,6 +130,74 @@ async function handleTTS(request, env, ctx, url) {
   });
   ctx.waitUntil(cache.put(cacheKey, audio.clone()));
   return cors(audio, request);
+}
+
+/**
+ * 整句翻譯。ECDICT 查得到單字，但查不了「這句話在說什麼」。
+ *
+ * 需要另外開一個 Azure Translator 資源（和 Speech 是不同的資源類型）：
+ *   TRANSLATOR_KEY     F0 免費層每月 200 萬字元
+ *   TRANSLATOR_REGION  例如 japaneast
+ * 沒設定就回 501，前端會自動把按鈕藏起來，不會壞。
+ */
+async function handleTranslate(request, env, ctx, url) {
+  if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }), request);
+  if (request.method !== 'POST') return cors(json({ error: 'use POST' }, 405), request);
+
+  if (env.TOKEN) {
+    const given = request.headers.get('x-token') ?? url.searchParams.get('t');
+    if (given !== env.TOKEN) return cors(json({ error: 'bad token' }, 403), request);
+  }
+  if (!env.TRANSLATOR_KEY || !env.TRANSLATOR_REGION) {
+    return cors(json({ error: 'not-configured', detail: '還沒設定 TRANSLATOR_KEY / TRANSLATOR_REGION' }, 501), request);
+  }
+
+  let body;
+  try { body = await request.json(); }
+  catch { return cors(json({ error: 'body 不是 JSON' }, 400), request); }
+
+  const text = String(body.text ?? '').trim().slice(0, 1000);
+  if (!text) return cors(json({ error: 'text 是空的' }, 400), request);
+  // 只允許白名單裡的目標語言，避免這個欄位變成任意查詢字串
+  const to = /^(zh-Hant|zh-Hans|ja|ko)$/.test(body.to || '') ? body.to : 'zh-Hant';
+
+  const cacheKey = new Request(
+    'https://tr.cache/' + [to, text].map(encodeURIComponent).join('/'), { method: 'GET' });
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) {
+    const r = new Response(hit.body, hit);
+    r.headers.set('x-cache', 'HIT');
+    return cors(r, request);
+  }
+
+  const res = await fetch(
+    `https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&from=en&to=${to}`,
+    {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': env.TRANSLATOR_KEY,
+        'Ocp-Apim-Subscription-Region': env.TRANSLATOR_REGION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([{ Text: text }]),
+    },
+  );
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    return cors(json({ error: res.status, detail: detail.slice(0, 300) }, res.status), request);
+  }
+
+  const data = await res.json().catch(() => null);
+  const translated = data?.[0]?.translations?.[0]?.text;
+  if (!translated) return cors(json({ error: 'unexpected-response' }, 502), request);
+
+  const out = json({ text: translated, to }, 200);
+  out.headers.set('cache-control', 'public, max-age=604800');
+  out.headers.set('x-cache', 'MISS');
+  ctx.waitUntil(cache.put(cacheKey, out.clone()));
+  return cors(out, request);
 }
 
 /**

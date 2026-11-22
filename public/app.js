@@ -7,6 +7,7 @@ import {
   VOWELS, bare, stressOf, toIPA, syllabify, ipaString,
   lookup as lookupIn, RULES, defaultRules, findIssues, azureSafe,
 } from './phonology.js';
+import { parseEcdict, define, frequencyNote, TAGS } from './dictionary.js';
 
 /** 哪些難點規則目前開著 */
 const on = defaultRules();
@@ -256,6 +257,87 @@ async function fetchAudio(word) {
 }
 
 /* ---------------------------------------------------------------
+   7a. 英漢詞典（ECDICT 子集）
+   8.7 MB 的資料檔，所以不在開頁時載入 —— 等使用者第一次點字才抓。
+   標色只需要 CMUdict，詞義是點開詳細面板才會用到的東西。
+   --------------------------------------------------------------- */
+let ecdictPromise = null;
+function loadEcdict() {
+  if (!ecdictPromise) {
+    ecdictPromise = fetch('./ecdict.txt')
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
+      .then(parseEcdict)
+      .catch((e) => { console.warn('ECDICT load failed:', e); return null; });
+  }
+  return ecdictPromise;
+}
+
+/** 詞義一律用 DOM 組裝 —— 釋義是任意文字，不能進 innerHTML */
+function renderDefinition(box, entry, word) {
+  box.replaceChildren();
+  if (!entry) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = `詞典裡沒有「${word}」—— 可能是專有名詞或太罕見的字。`;
+    box.append(p);
+    return;
+  }
+
+  const head = document.createElement('div');
+  head.className = 'def-head';
+  if (entry.via) {
+    const s1 = document.createElement('span');
+    s1.className = 'def-via';
+    s1.textContent = `${entry.via} → 原形 ${entry.word}`;
+    head.append(s1);
+  }
+  for (const t of entry.tags) {
+    if (!TAGS[t]) continue;
+    const b = document.createElement('span');
+    b.className = 'badge';
+    b.textContent = TAGS[t];
+    head.append(b);
+  }
+  const note = frequencyNote(entry.frq);
+  if (note) {
+    const f = document.createElement('span');
+    f.className = 'def-frq';
+    f.textContent = note;
+    head.append(f);
+  }
+  if (head.childElementCount) box.append(head);
+
+  if (entry.zh.length) {
+    const ul = document.createElement('ul');
+    ul.className = 'def zh';
+    for (const line of entry.zh) {
+      const li = document.createElement('li');
+      li.textContent = line;
+      ul.append(li);
+    }
+    box.append(ul);
+  }
+
+  if (entry.en.length) {
+    const ul = document.createElement('ul');
+    ul.className = 'def en';
+    for (const line of entry.en.slice(0, 4)) {
+      const li = document.createElement('li');
+      li.textContent = line;
+      ul.append(li);
+    }
+    box.append(ul);
+  }
+
+  if (entry.lemma) {
+    const p = document.createElement('p');
+    p.className = 'src';
+    p.textContent = `原形是 ${entry.lemma}`;
+    box.append(p);
+  }
+}
+
+/* ---------------------------------------------------------------
    7b. Azure TTS（透過你自己的 Cloudflare Worker）
    把 CMUdict 的音素餵進 SSML 的 <phoneme>，TTS 就不用猜 ——
    record / lead / present 這 8,444 個多重發音的字不會再被唸錯。
@@ -363,10 +445,12 @@ function showDetail(word, at) {
   parts.push(`<div class="row" id="audio-row">
       <button class="primary" data-act="say">▶ 發音</button>
       <button data-act="slow">0.6×</button>
-      ${sent ? '<button data-act="sent">▶ 聽整句</button>' : ''}
+      ${sent ? '<button data-act="sent">▶ 聽整句</button><button data-act="tr">翻譯整句</button>' : ''}
     </div>
     <div class="src" id="eng-note"></div>
-    <div class="src" id="src-note">正在找真人錄音…</div>`);
+    <div class="src" id="src-note">正在找真人錄音…</div>
+    <div id="tr-box"></div>
+    <div id="def-box"><p class="empty">查詞典中…</p></div>`);
 
   if (a.issues.length) {
     parts.push('<ul class="issues">' + a.issues.map(i =>
@@ -408,6 +492,40 @@ function showDetail(word, at) {
   detailEl.querySelector('[data-act="slow"]').onclick = () => say(0.6);
   const sentBtn = detailEl.querySelector('[data-act="sent"]');
   if (sentBtn) sentBtn.onclick = () => say(1, sent, false);
+
+  // 整句翻譯。ECDICT 查得到單字，查不了「這句在說什麼」。
+  const trBtn = detailEl.querySelector('[data-act="tr"]');
+  if (trBtn) trBtn.onclick = async () => {
+    const box = document.getElementById('tr-box');
+    const show = (txt, dim) => {
+      const p = document.createElement('p');
+      p.className = dim ? 'src' : 'tr-text';
+      p.textContent = txt;
+      box.replaceChildren(p);
+    };
+    trBtn.disabled = true;
+    show('翻譯中…', true);
+    try {
+      const base = (cfg.worker || '/tts').replace(/\/tts\b/, '/translate');
+      const r = await fetch(base, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: sent, to: 'zh-Hant' }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 501) {
+        show('整句翻譯還沒設定 —— Worker 需要 TRANSLATOR_KEY 和 TRANSLATOR_REGION', true);
+        trBtn.remove();
+        return;
+      }
+      if (!r.ok) { show(`翻譯失敗（${r.status}）${d.detail ? '：' + d.detail : ''}`, true); return; }
+      show(d.text, false);
+    } catch (e) {
+      show(`翻譯失敗：${e.message}`, true);
+    } finally {
+      trBtn.disabled = false;
+    }
+  };
   setEng(cfg.worker
     ? (ipaOK ? '按發音會用 CMUdict 指定的音素，TTS 不會猜' : '這個字沒有可用的音素，會用一般唸法')
     : '目前是瀏覽器合成音 — 右上「設定」填入 Worker 網址可改用 Azure');
@@ -448,6 +566,15 @@ function showDetail(word, at) {
       p.textContent = r.ipa + '（來自 Wiktionary，口音未標註）';
       detailEl.querySelector('.word-hd').after(p);
     }
+  });
+
+  // 詞義：第一次點字才會去抓 8.7 MB 的詞典，之後都從記憶體查
+  loadEcdict().then((db) => {
+    if (selected !== key) return;
+    const box = document.getElementById('def-box');
+    if (!box) return;
+    if (!db) { box.replaceChildren(); return; }
+    renderDefinition(box, define(db, word), word);
   });
 
   render();

@@ -148,3 +148,28 @@
 .grow { flex: 1 1 320px; }
 .fw400 { font-weight: 400; }
 .mt12 { margin-top: 12px; }
+
+/* 詞義 */
+#def-box { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.def-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.def-via {
+  font-size: 12px; color: var(--mark); background: var(--mark-bg);
+  padding: 2px 8px; border-radius: 10px; font-family: var(--serif);
+}
+.badge {
+  font-size: 11px; color: var(--accent); border: 1px solid currentColor;
+  padding: 1px 7px; border-radius: 9px; letter-spacing: .02em;
+}
+.def-frq { font-size: 11.5px; color: var(--ink-faint); }
+ul.def { list-style: none; padding: 0; margin: 0 0 10px; display: flex; flex-direction: column; gap: 3px; }
+ul.def li { font-size: 14px; line-height: 1.6; }
+ul.def.zh li { color: var(--ink); }
+ul.def.en li { font-size: 12.5px; color: var(--ink-soft); font-family: var(--serif); line-height: 1.5; }
+ul.def.en li::before { content: "· "; color: var(--ink-faint); }
+
+/* 整句翻譯 */
+#tr-box:empty { display: none; }
+.tr-text {
+  font-size: 14px; line-height: 1.7; margin: 8px 0 0; padding: 9px 11px;
+  background: var(--bg); border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0;
+}
