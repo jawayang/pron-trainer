@@ -1,0 +1,19 @@
+{
+  "name": "pron-trainer",
+  "version": "1.0.0",
+  "description": "英文發音練習工具 — 用 CMUdict 標出會卡的字，用 SSML <phoneme> 讓 TTS 照指定音素唸",
+  "type": "module",
+  "private": true,
+  "license": "BSD-2-Clause",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/worker.js && node --check public/app.js && node --check public/phonology.js",
+    "build:dict": "node scripts/build-dict.mjs"
+  },
+  "devDependencies": {
+    "cmu-pronouncing-dictionary": "^3.0.0",
+    "wrangler": "^3"
+  }
+}

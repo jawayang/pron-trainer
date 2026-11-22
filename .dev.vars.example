@@ -1,0 +1,3 @@
+# 複製成 .dev.vars 來跑 `npm run dev`（.dev.vars 已經在 .gitignore 裡）
+AZURE_KEY=你的 Azure Speech KEY 1
+TOKEN=隨機字串，用 crypto.randomUUID() 產生

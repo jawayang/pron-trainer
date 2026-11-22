@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 預設的 GITHUB_TOKEN 權限可能偏大，明確收到唯讀
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 測試
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 語法檢查
+        run: npm run check
+      - name: 回歸測試（含整本 CMUdict 的音素驗證）
+        run: npm test
+
+  deploy:
+    name: 部署到 Cloudflare
+    needs: test                                   # 測試沒過就不部署
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: 部署
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # 機密每次部署時一併送上，這樣 repo 和儀表板不會各有一份而對不起來
+          secrets: |
+            AZURE_KEY
+            TOKEN
+        env:
+          AZURE_KEY: ${{ secrets.AZURE_KEY }}
+          TOKEN: ${{ secrets.TTS_TOKEN }}
+
+      - name: 煙霧測試 — 部署完的站台真的會合成語音嗎
+        env:
+          TOKEN: ${{ secrets.TTS_TOKEN }}
+        run: |
+          set -e
+          URL="https://pron.${{ secrets.CLOUDFLARE_SUBDOMAIN }}.workers.dev"
+
+          echo "→ 首頁要回 200"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/")
+          [ "$code" = "200" ] || { echo "首頁回 $code"; exit 1; }
+
+          echo "→ /tts 要吐出真的 MP3"
+          # token 走標頭而不是查詢字串：萬一 curl 把網址印進錯誤訊息，
+          # 也不會連帶把 token 一起印出來
+          curl -sS -X POST "$URL/tts" \
+            -H "x-token: $TOKEN" \
+            -H 'content-type: application/json' \
+            --data '{"text":"record","ipa":"ɹəˈkɔɹd"}' \
+            -o out.mp3 -w 'HTTP %{http_code}  %{size_download} bytes\n'
+
+          # MP3 的同步字是 FF Fx；小於 2KB 多半是錯誤訊息而不是音檔
+          size=$(wc -c < out.mp3)
+          [ "$size" -gt 2000 ] || { echo "檔案只有 $size bytes："; cat out.mp3; exit 1; }
+          head -c 2 out.mp3 | od -An -tx1 | grep -qE 'ff f[0-9a-f]' \
+            || { echo "開頭不是 MP3 的同步字"; exit 1; }
+          echo "✓ 合成正常（$size bytes）"

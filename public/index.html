@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>發音練習工具</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header>
+  <h1>發音練習工具</h1>
+  <span class="sub">貼上英文 → 自動標出會卡的字 → 點字聽發音</span>
+  <span id="status">字典載入中…</span>
+  <button id="cfg-btn" class="ghost">設定</button>
+</header>
+
+<div id="cfg-panel" hidden>
+  <div class="row m0">
+    <label class="fld grow">Cloudflare Worker 網址
+      <input id="cfg-worker" type="text" spellcheck="false" placeholder="/tts?t=你的token">
+    </label>
+    <label class="fld">語音
+      <select id="cfg-voice">
+        <option value="en-US-AvaNeural">Ava（美・女）</option>
+        <option value="en-US-AndrewNeural">Andrew（美・男）</option>
+        <option value="en-US-EmmaNeural">Emma（美・女）</option>
+        <option value="en-US-BrianNeural">Brian（美・男）</option>
+        <option value="en-US-JennyNeural">Jenny（美・女）</option>
+        <option value="en-GB-SoniaNeural">Sonia（英・女）</option>
+        <option value="en-GB-RyanNeural">Ryan（英・男）</option>
+      </select>
+    </label>
+  </div>
+  <div class="row mt10">
+    <button id="cfg-test">測試連線</button>
+    <span id="cfg-result" class="src"></span>
+  </div>
+  <p class="src mt8">
+    空白就用瀏覽器內建合成音。Azure 的 key 放在 Worker 的環境變數裡，不會經過這個頁面，也不會存在你的瀏覽器。
+  </p>
+</div>
+
+<main>
+<div class="left">
+  <textarea id="input" placeholder="貼上任何英文文章、文件段落、或 release note…">Obsidian is a type of black volcanic glass. Because it breaks with a very sharp edge, early civilisations used it for tools and weapons. Months of weathering will cloud its surface, though the inner material keeps its depth. These days the world mostly values it for jewellery and for the smooth, almost liquid feel of its polished faces.</textarea>
+  <div class="row">
+    <button class="primary" id="go">分析</button>
+    <button class="ghost" id="clear">清空</button>
+    <span class="sub" id="hint"></span>
+  </div>
+
+  <fieldset>
+    <legend>要標出哪些難點</legend>
+    <div class="toggles" id="toggles"></div>
+  </fieldset>
+
+  <div class="row mb4">
+    <label class="tg"><input type="checkbox" id="only-hard"> 只顯示難字</label>
+    <label class="tg"><input type="checkbox" id="only-marked"> 只顯示已標記</label>
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div id="reading"></div>
+</div>
+
+<div class="right">
+  <div id="detail"><p class="empty">點任何一個字看詳細資訊。</p></div>
+  <hr>
+  <h2>不熟清單 <span id="marked-count" class="fw400"></span></h2>
+  <div id="marked-list"></div>
+  <div class="row">
+    <button id="copy">複製</button>
+    <button id="csv">下載 CSV</button>
+    <button class="ghost" id="reset">全部清除</button>
+  </div>
+</div>
+</main>
+
+<footer>
+  音素與重音：<b>CMUdict</b>（Carnegie Mellon，13 萬字）·
+  真人錄音：<b>Wikimedia Commons</b> 與 <b>Lingua Libre</b>，經 dictionaryapi.dev 與 Commons API 取得（CC BY-SA）·
+  合成語音：Azure Speech（SSML <code>&lt;phoneme&gt;</code> 由 CMUdict 指定音素，不讓 TTS 自己猜），未設定 Worker 時退回瀏覽器內建 Web Speech API。<br>
+  音節切分為近似演算法（maximal onset + 合法字首組合白名單 + 重音鬆母音閉音節），非 CMUdict 原始資料，僅供參考。
+  真人錄音涵蓋率不完整，缺少時自動改用合成音並標示來源。
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

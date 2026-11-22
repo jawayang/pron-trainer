@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pron",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+
+  // public/ 直接當靜態網站送出；POST /tts 不對應任何檔案，所以會落到 Worker
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  "vars": {
+    "AZURE_REGION": "japaneast"
+  }
+
+  // AZURE_KEY 和 TOKEN 是機密，不寫在這裡。設定方式二選一：
+  //   本機： npx wrangler secret put AZURE_KEY
+  //   CI：   存成 GitHub repo 的 secret，由 .github/workflows/ci.yml 推上去
+}
